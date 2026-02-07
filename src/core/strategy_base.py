@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from src.core.interfaces.strategy_abc import StrategyInterface
 from src.core.interfaces.exchange_abc import ExchangeInterface
@@ -20,27 +20,42 @@ class StrategyBase(StrategyInterface, ABC):
         self.is_running = True
         print(f"[Strategy: {self.strategy_name}] 初始化完成")
 
-    def execute_trade(self, symbol: str, side: str, amount: float, price: Optional[float] = None):
-        """
-        封裝下單邏輯，加入基本的風險檢查。
-        side: 'buy' or 'sell'
-        """
-        # 這裡可以加入全局風險檢查 (例如單筆金額上限)
-        print(f"[Trade Executing] {self.strategy_name} -> {side} {amount} {symbol} @ {price or 'Market'}")
-        
+    def execute_trade(self, symbol: str, side: str, amount: float, order_type: str = 'limit', price: float = None, params: Dict[str, Any] = {}) -> Dict[str, Any]:
+        """執行下單 (封裝底層交易所介面)"""
         try:
-            order_type = 'limit' if price else 'market'
-            return self.exchange.create_order(
-                symbol=symbol,
-                order_type=order_type,
-                side=side,
-                amount=amount,
-                price=price
-            )
+            return self.exchange.create_order(symbol, order_type, side, amount, price, params)
         except Exception as e:
-            print(f"[Trade Error] 執行下單失敗: {e}")
+            print(f"[Trade Error] {symbol} {side} 下單失敗: {e}")
             return None
+
+    def calculate_order_amount(self, symbol: str, ticker_price: float, val: float, mode: str = 'USDT') -> float:
+        """
+        智慧數量計算器。
+        :param val: 數值 (如果是 USDT 模式則為金額，如果是 UNITS 模式則為顆數)
+        :param mode: 'USDT' 或 'UNITS'
+        """
+        if mode == 'USDT':
+            # 金額 / 市價 = 顆數
+            raw_amount = val / ticker_price
+        else:
+            raw_amount = val
+
+        # 使用交易所精度處理
+        return float(self.exchange._exchange.amount_to_precision(symbol, raw_amount))
 
     @property
     def strategy_name(self) -> str:
         return self.__class__.__name__
+
+    @abstractmethod
+    def on_tick(self, data: Dict[str, Any]) -> None:
+        pass
+
+    @abstractmethod
+    def on_signal(self, signal_data: Dict[str, Any]) -> None:
+        pass
+
+    @property
+    @abstractmethod
+    def requirements(self) -> Dict[str, Any]:
+        pass

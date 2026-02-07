@@ -1,6 +1,5 @@
-from typing import Dict, Any, Optional
-from src.core.interfaces.parser_abc import ParserInterface
 from src.infrastructure.message_parsers.demo_tg_parser import DemoTGParser
+from src.infrastructure.message_parsers.adtrack_parser import AdTrackParser
 
 class ParserFactory:
     """
@@ -11,8 +10,7 @@ class ParserFactory:
     # 註冊表：將配置字串映射到具體類別
     _REGISTERED_PARSERS = {
         "demo_tg_parser": DemoTGParser,
-        # 未來在此新增新開發的解析器，例如:
-        # "json_parser": JSONParser,
+        "adtrack_parser": AdTrackParser,
     }
 
     @classmethod

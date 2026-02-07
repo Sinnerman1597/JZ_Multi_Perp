@@ -65,6 +65,10 @@ class CCXTAdapter(ExchangeInterface):
         """獲取掛單清單"""
         return self._exchange.fetch_open_orders(symbol)
 
+    def get_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
+        """獲取特定訂單詳細資訊"""
+        return self._exchange.fetch_order(order_id, symbol)
+
     @property
     def exchange_id(self) -> str:
         """獲取當前交易所 ID (字串)"""

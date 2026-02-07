@@ -1,8 +1,6 @@
-import importlib
-from typing import Dict, Any, Type
-from src.core.interfaces.strategy_abc import StrategyInterface
 from src.strategies.demo_ma_crossover import DemoMACrossover
 from src.strategies.demo_signal_strategy import DemoSignalStrategy
+from src.strategies.adtrack_strategy import AdTrack
 
 class StrategyFactory:
     """策略工廠：負責管理與實例化交易策略"""
@@ -10,6 +8,7 @@ class StrategyFactory:
     _REGISTERED_STRATEGIES = {
         "demo_ma_crossover": DemoMACrossover,
         "demo_signal_strategy": DemoSignalStrategy,
+        "AdTrack": AdTrack,
     }
 
     @classmethod

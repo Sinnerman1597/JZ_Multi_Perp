@@ -43,22 +43,23 @@ class StrategyEngine:
     def process_incoming_message(self, source_name: str, raw_message: Any):
         """
         處理傳入的原始訊息 (由 SignalReceiver 呼叫)。
-        1. 找到對應的解析器。
-        2. 解析訊息。
-        3. 若有訊號，分發給所有活動策略。
         """
         parser = self.parsers.get(source_name)
         if not parser:
             return
 
         trade_signal = parser.parse(raw_message)
+        
+        # 更新統計數據
+        self.stats["total_signals"] += 1
+        from datetime import datetime
+        self.stats["last_signal_time"] = datetime.now().strftime("%H:%M:%S")
+
         if trade_signal:
             print(f"[Engine] 從 {source_name} 獲取到有效交易訊號，正在分發...")
+            self.stats["executed_trades"] += 1
             for strategy in self.active_strategies:
                 strategy.on_signal(trade_signal)
-        else:
-            # 靜默執行，不干擾主流程
-            pass
 
     def run_tick(self, market_data: Dict[str, Any]):
         """驅動主動型策略"""

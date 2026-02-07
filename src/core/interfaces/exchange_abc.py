@@ -37,6 +37,11 @@ class ExchangeInterface(ABC):
         """獲取當前掛單中的訂單"""
         pass
 
+    @abstractmethod
+    def get_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
+        """獲取特定訂單的詳細狀態"""
+        pass
+
     @property
     @abstractmethod
     def exchange_id(self) -> str:
