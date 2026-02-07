@@ -1,0 +1,35 @@
+# ==========================================
+# Multi_Base 交易系統設定範本 (Example)
+# 使用方式: 複製此檔案並重新命名為 config.yaml
+# ==========================================
+
+exchange:
+  active: "binance"
+  
+  binance:
+    type: "ccxt"
+    apiKey: "YOUR_API_KEY"
+    secret: "YOUR_API_SECRET"
+    options: { 'defaultType': 'future' }
+
+  bybit:
+    type: "ccxt"
+    apiKey: "YOUR_API_KEY"
+    secret: "YOUR_API_SECRET"
+    options: { 'defaultType': 'swap' }
+
+strategy:
+  enabled: true
+  active: "demo_ma_crossover"
+
+signals:
+  enabled: false
+  sources:
+    - name: "Alpha_Group"
+      type: "telegram"
+      channel_id: "@channel_name"
+      parser: "demo_tg_parser"
+
+notifications:
+  telegram_bot:
+    enabled: false
