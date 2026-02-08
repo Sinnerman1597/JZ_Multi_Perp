@@ -1,6 +1,9 @@
 from telethon import TelegramClient, events
 import asyncio
 from typing import Dict, Any
+from rich.console import Console
+
+console = Console()
 
 class TGSignalReceiver:
     """Telegram 訊號接收器 (使用 Telethon)"""
@@ -76,7 +79,18 @@ class TGSignalReceiver:
         if not self.client: return
         self._is_running = True
         self.engine.stats['status'] = "🟢 Telegram 監聽中..."
-        await self.client.run_until_disconnected()
+        
+        try:
+            await self.client.run_until_disconnected()
+        except Exception as e:
+            # 捕獲 TypeNotFoundError (Constructor ID 錯誤) 等 Telethon 解析異常
+            if "Constructor ID" in str(e):
+                console.print("[yellow][TG Receiver] 收到不支援的更新格式 (TypeNotFoundError)，已忽略並繼續監聽。[/yellow]")
+                # 重新運行直至正式斷開
+                await self.run_forever()
+            elif self._is_running:
+                console.print(f"[red][TG Receiver] 監聽中斷: {e}[/red]")
+        
         self.engine.stats['status'] = "⚪ Telegram 已斷開"
 
     async def stop(self):

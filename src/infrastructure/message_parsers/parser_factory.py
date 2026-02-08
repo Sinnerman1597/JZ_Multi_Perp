@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, Type
 from src.core.interfaces.parser_abc import ParserInterface
 from src.infrastructure.message_parsers.demo_tg_parser import DemoTGParser
 from src.infrastructure.message_parsers.adtrack_parser import AdTrackParser
+from src.infrastructure.message_parsers.italy_parser import ItalyParser
 
 class ParserFactory:
     """
@@ -13,6 +14,7 @@ class ParserFactory:
     _REGISTERED_PARSERS = {
         "demo_tg_parser": DemoTGParser,
         "adtrack_parser": AdTrackParser,
+        "italy_parser": ItalyParser,
     }
 
     @classmethod

@@ -1,4 +1,5 @@
 from typing import Dict, Any, List
+import asyncio
 from src.core.interfaces.exchange_abc import ExchangeInterface
 from src.core.interfaces.strategy_abc import StrategyInterface
 from src.infrastructure.message_parsers.parser_factory import ParserFactory
@@ -20,6 +21,8 @@ class StrategyEngine:
             "last_signal_time": "None",
             "status": "等待連線...",
             "active_channels": "None", # 儲存當前監聽的頻道名稱
+            "investment_mode": "N/A",  # 下單模式 (USDT/UNITS)
+            "investment_value": "N/A", # 下單數值
             "message_logs": [],   # 存儲最近 5 則訊息內容
             "active_trades": []   # 存儲當前執行的策略持倉狀態
         }
@@ -29,6 +32,20 @@ class StrategyEngine:
         strategy.engine = self  # 注入引擎實例以便策略更新數據
         strategy.on_init(params)
         self.active_strategies.append(strategy)
+        
+        # 更新全域下單資訊統計 (取當前運行的參數)
+        if 'investment_mode' in params:
+            self.stats["investment_mode"] = params['investment_mode']
+        if 'investment_value' in params:
+            self.stats["investment_value"] = params['investment_value']
+
+    async def stop(self):
+        """集中停止所有運行的策略與引擎狀態"""
+        self.is_running = False
+        tasks = [strat.stop() for strat in self.active_strategies]
+        if tasks:
+            await asyncio.gather(*tasks)
+        print("[Engine] 所有策略已安全停止")
 
     def setup_signal_sources(self, signal_config: Dict[str, Any]):
         """根據配置初始化多個訊號解析器"""

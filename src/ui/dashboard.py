@@ -27,6 +27,8 @@ class Dashboard:
         table.add_row("當前交易所:", f"[yellow]{exchange_id.upper()}[/yellow]")
         table.add_row("系統狀態:", f"[bold {'green' if '監聽中' in stats.get('status', '') else 'yellow'}]{stats.get('status', '初始化...')}[/bold {'green' if '監聽中' in stats.get('status', '') else 'yellow'}]")
         table.add_row("監聽頻道:", f"[magenta]{stats.get('active_channels', 'None')}[/magenta]")
+        table.add_row("下單模式:", f"[cyan]{stats.get('investment_mode', 'N/A')}[/cyan]")
+        table.add_row("下單數值:", f"[green]{stats.get('investment_value', 'N/A')}[/green]")
         table.add_row("已接收訊號:", str(stats['total_signals']))
         table.add_row("已執行下單:", str(stats['executed_trades']))
         table.add_row("最後訊號時間:", str(stats['last_signal_time']))

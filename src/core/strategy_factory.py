@@ -3,6 +3,7 @@ from src.core.interfaces.strategy_abc import StrategyInterface
 from src.strategies.demo_ma_crossover import DemoMACrossover
 from src.strategies.demo_signal_strategy import DemoSignalStrategy
 from src.strategies.adtrack_strategy import AdTrack
+from src.strategies.italy_strategy import ItalyStrategy
 
 class StrategyFactory:
     """策略工廠：負責管理與實例化交易策略"""
@@ -12,6 +13,7 @@ class StrategyFactory:
         "demo_ma_crossover": DemoMACrossover,
         "demo_signal_strategy": DemoSignalStrategy,
         "AdTrack": AdTrack,
+        "ItalyStrategy": ItalyStrategy,
     }
 
     @classmethod

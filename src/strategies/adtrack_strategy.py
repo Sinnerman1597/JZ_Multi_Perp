@@ -28,6 +28,10 @@ class AdTrack(StrategyBase):
             self._monitoring_task = asyncio.create_task(self._monitor_loop())
 
     def on_signal(self, signal_data: Dict[str, Any], source: str) -> None:
+        # --- 來源過濾邏輯：確保此實例只處理其綁定頻道的訊號 ---
+        if hasattr(self, 'target_source') and self.target_source and source != self.target_source:
+            return
+
         # --- 1. 優化日誌輸出 (視覺化訊號內容) ---
         self._log_signal_summary(signal_data)
         
@@ -61,7 +65,15 @@ class AdTrack(StrategyBase):
             except: pass
             try: self.exchange._exchange.set_position_mode(False, symbol)
             except: pass
-            self.exchange._exchange.set_leverage(leverage, symbol)
+            
+            try:
+                self.exchange._exchange.set_leverage(leverage, symbol)
+            except Exception as lev_e:
+                err_msg = str(lev_e).lower()
+                if "110043" in err_msg or "leverage not modified" in err_msg:
+                    print(f"[AdTrack] 提示：{symbol} 槓桿數已為 {leverage} 倍，不進行調整。")
+                else:
+                    print(f"[AdTrack Leverage Warning] {lev_e}")
 
             # 2. 獲取市價並計算數量 (智慧換算)
             ticker = self.exchange.get_ticker(symbol)
@@ -83,7 +95,8 @@ class AdTrack(StrategyBase):
             # 4. 執行下單
             main_order = self.execute_trade(
                 symbol=symbol, side=side, amount=amount, 
-                order_type=order_type, price=exec_price
+                order_type=order_type, price=exec_price,
+                params={'positionIdx': 0} # 強制單向持倉
             )
 
             if main_order:
@@ -102,7 +115,12 @@ class AdTrack(StrategyBase):
                     })
 
         except Exception as e:
-            print(f"[AdTrack Error] {e}")
+            err_msg = str(e)
+            if "10001" in err_msg:
+                print(f"[AdTrack Error] ❌ 下單失敗 (10001): 倉位模式不匹配。")
+                print(">>> 解決方案：請手動將 Bybit 該幣種的持倉模式改為『單向持倉 (One-way)』。")
+            else:
+                print(f"[AdTrack Error] {e}")
 
     async def _monitor_loop(self):
         while self._is_running:
@@ -114,7 +132,11 @@ class AdTrack(StrategyBase):
                 for trade in self.watched_trades[:]:
                     await self._check_trade_update(trade)
                 await asyncio.sleep(5)
-            except: await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                break # 正確響應取消請求
+            except Exception as e:
+                print(f"[AdTrack Monitor Error] {e}")
+                await asyncio.sleep(10)
 
     async def _check_trade_update(self, trade):
         """檢查單筆交易的成交狀況 (強化版: 顯式狀態對比)"""
@@ -158,7 +180,7 @@ class AdTrack(StrategyBase):
             new_sl_order = self.execute_trade(
                 symbol=symbol, order_type='market', side=close_side,
                 amount=trade['remaining_amount'], 
-                params={'stopPrice': new_sl_price, 'reduceOnly': True}
+                params={'stopPrice': new_sl_price, 'reduceOnly': True, 'positionIdx': 0}
             )
             trade['sl_order_id'] = new_sl_order['id'] if new_sl_order else None
         except Exception as e:
@@ -173,7 +195,7 @@ class AdTrack(StrategyBase):
             try:
                 order = self.execute_trade(
                     symbol=symbol, order_type='limit', side=close_side,
-                    amount=partial_amount, price=tp_p, params={'reduceOnly': True}
+                    amount=partial_amount, price=tp_p, params={'reduceOnly': True, 'positionIdx': 0}
                 )
                 if order: tp_infos.append({"id": order['id'], "price": tp_p, "stage": i+1})
             except: pass
@@ -182,7 +204,7 @@ class AdTrack(StrategyBase):
         try:
             sl_order = self.execute_trade(
                 symbol=symbol, order_type='market', side=close_side,
-                amount=total_amount, params={'stopPrice': initial_sl, 'reduceOnly': True}
+                amount=total_amount, params={'stopPrice': initial_sl, 'reduceOnly': True, 'positionIdx': 0}
             )
             sl_id = sl_order['id'] if sl_order else None
         except: pass
@@ -194,8 +216,18 @@ class AdTrack(StrategyBase):
     @property
     def requirements(self) -> Dict[str, Any]: 
         return {
-            "investment_mode": {"type": "string", "description": "下單模式 (USDT 或 UNITS)", "default": "USDT"},
-            "investment_value": {"type": "float", "description": "下單數值 (USDT金額 或 幣種顆數)", "default": 100.0}
+            "investment_mode": {
+                "type": "list", 
+                "description": "下單模式", 
+                "default": "USDT",
+                "choices": ["USDT", "UNITS"]
+            },
+            "investment_value": {
+                "type": "float", 
+                "description": "下單數值 (USDT金額 或 幣種顆數)", 
+                "default": 20.0,
+                "dynamic_defaults": {"UNITS": "0.001", "USDT": "20.0"}
+            }
         }
 
     @property
