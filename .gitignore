@@ -40,3 +40,6 @@ main_test.py
 .idea/
 *.swp
 *.swo
+
+# 專案文件 (禁止上傳)
+specifications.md
