@@ -18,11 +18,14 @@ class StrategyEngine:
             "total_signals": 0,
             "executed_trades": 0,
             "last_signal_time": "None",
-            "status": "等待連線..."
+            "status": "等待連線...",
+            "message_logs": [],   # 存儲最近 5 則訊息內容
+            "active_trades": []   # 存儲當前執行的策略持倉狀態
         }
 
     def add_strategy(self, strategy: StrategyInterface, params: Dict[str, Any]):
         """註冊並初始化策略"""
+        strategy.engine = self  # 注入引擎實例以便策略更新數據
         strategy.on_init(params)
         self.active_strategies.append(strategy)
 
@@ -54,7 +57,13 @@ class StrategyEngine:
         # 更新統計數據
         self.stats["total_signals"] += 1
         from datetime import datetime
-        self.stats["last_signal_time"] = datetime.now().strftime("%H:%M:%S")
+        now_time = datetime.now().strftime("%H:%M:%S")
+        self.stats["last_signal_time"] = now_time
+        
+        # 紀錄日誌 (僅保存最近 5 條)
+        log_entry = f"[{now_time}] {source_name}: {raw_message}"
+        self.stats["message_logs"].insert(0, log_entry)
+        self.stats["message_logs"] = self.stats["message_logs"][:5]
 
         if trade_signal:
             print(f"[Engine] 從 {source_name} 獲取到有效交易訊號，正在分發...")

@@ -61,8 +61,16 @@ class CLIController:
             self._setup_signals_flow()
 
         # 5. 最後確認並啟動
-        confirm = await questionary.confirm("配置完成，是否啟動交易引擎?").ask_async()
-        if confirm:
+        confirm_choice = await questionary.select(
+            "配置完成，是否啟動交易引擎?",
+            choices=[
+                "Yes (啟動)",
+                "No (結束程式)"
+            ],
+            default="Yes (啟動)"
+        ).ask_async()
+
+        if confirm_choice == "Yes (啟動)":
             await self._start_monitoring_session(exchange_id)
 
     async def _start_monitoring_session(self, exchange_id):
@@ -74,21 +82,48 @@ class CLIController:
         self.engine.is_running = True
         layout = Dashboard.create_layout()
         
-        console.print("\n[bold green]✔ 引擎與監聽任務準備啟動...[/bold green]")
-        
-        # 初始化並啟動 Telegram 接收器 (非同步任務)
+        # --- 1. 啟動連線預檢 (包含互動式登入) ---
         receiver = TGSignalReceiver(self.engine, self.config.get('signals', {}))
-        receiver_task = asyncio.create_task(receiver.start())
+        
+        try:
+            console.print("\n[bold yellow]📡 正在連接 Telegram... (若為第一次登入，請依提示輸入資訊)[/bold yellow]")
+            await receiver.connect_and_auth()
+            console.print("[bold green]✔ 連線與授權成功！正在開啟監控面板...[/bold green]")
+            await asyncio.sleep(1) # 給使用者看一眼成功訊息
+        except Exception as e:
+            console.print(f"[bold red]❌ Telegram 初始化失敗: {e}[/bold red]")
+            return
+
+        # 啟動非同步運行任務 (在背景跑 run_forever)
+        receiver_task = asyncio.create_task(receiver.run_forever())
+        
+        # 2. 啟動非同步指令監聽 (stop/test)
+        input_queue = asyncio.Queue()
+        async def _read_input():
+            while self.engine.is_running:
+                cmd = await asyncio.get_event_loop().run_in_executor(None, input)
+                await input_queue.put(cmd.strip().lower())
+
+        input_task = asyncio.create_task(_read_input())
 
         try:
             with Live(layout, refresh_per_second=4, screen=False) as live:
                 while self.engine.is_running:
-                    # 1. 更新 UI 數據
+                    # 處理待處理的指令
+                    while not input_queue.empty():
+                        cmd = await input_queue.get()
+                        if cmd == 'stop':
+                            self.engine.is_running = False
+                        elif cmd == 'test':
+                            self._trigger_mock_signal()
+                    
+                    # 更新 UI
                     layout["header"].update(Dashboard.get_header_panel())
-                    layout["main"].update(Dashboard.get_stats_panel(self.engine.stats, exchange_id))
+                    layout["upper"].update(Dashboard.get_stats_panel(self.engine.stats, exchange_id))
+                    layout["middle"].update(Dashboard.get_trades_panel(self.engine.stats['active_trades']))
+                    layout["lower"].update(Dashboard.get_logs_panel(self.engine.stats['message_logs']))
                     layout["footer"].update(Dashboard.get_footer_panel())
                     
-                    # 2. 異步等待，不阻塞事件循環
                     await asyncio.sleep(0.5)
 
                     if not self.engine.is_running:
@@ -99,7 +134,24 @@ class CLIController:
             self.engine.is_running = False
             await receiver.stop()
             receiver_task.cancel()
+            input_task.cancel()
             console.print("[yellow]引擎已安全停止。[/yellow]")
+
+    def _trigger_mock_signal(self):
+        """模擬一則 AdTrack 測試訊號"""
+        mock_msg = (
+            "📈 交易對：TESTUSDT\n"
+            "📊 倉位：LONG\n"
+            "💪 槓桿倍數：10X\n"
+            "🔍 進場區域：1.0-2.0\n"
+            "⛔ 止損：0.5\n"
+            "🎯 目標1：3.0\n"
+            "🎯 目標2：4.0"
+        )
+        print("\n[Test Mode] 正在模擬推送測試訊號...")
+        # 尋找具備 adtrack_parser 的來源名稱並推送
+        source_name = next(iter(self.engine.parsers.keys()), "Test_Source")
+        self.engine.process_incoming_message(source_name, mock_msg)
 
     async def _setup_strategy_flow(self, exchange):
         strategy_name = await questionary.select(

@@ -7,6 +7,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.cli.cli_controller import CLIController
 
+# 修正 Windows 平台上 ProactorEventLoop 關閉時的 bug
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 async def main():
     try:
         controller = CLIController()

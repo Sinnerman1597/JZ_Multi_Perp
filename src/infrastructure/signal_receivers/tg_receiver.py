@@ -1,82 +1,83 @@
-import asyncio
 from telethon import TelegramClient, events
-from typing import Dict, Any, List
-from src.core.strategy_engine import StrategyEngine
+import asyncio
+from typing import Dict, Any
 
 class TGSignalReceiver:
-    """
-    Telegram 訊號接收器。
-    使用 Telethon 監聽特定頻道的訊息，並推送到 StrategyEngine。
-    """
+    """Telegram 訊號接收器 (使用 Telethon)"""
 
-    def __init__(self, engine: StrategyEngine, config: Dict[str, Any]):
+    def __init__(self, engine, config: Dict[str, Any]):
         self.engine = engine
         self.config = config
-        self.client: TelegramClient = None
+        self.client = None
         self._is_running = False
+        self.channel_map = {}
 
-    async def start(self):
-        """啟動 Telegram 客戶端並開始監聽"""
+    async def connect_and_auth(self):
+        """第一階段：建立連線並處理互動式驗證"""
+        # 修正：改從 telegram_config 子層級讀取
         tg_cfg = self.config.get('telegram_config', {})
+        session_name = tg_cfg.get('session_name', 'trade_bot')
         api_id = tg_cfg.get('api_id')
         api_hash = tg_cfg.get('api_hash')
-        session_name = tg_cfg.get('session_name', 'trade_bot')
 
         if not api_id or not api_hash:
-            print("[TG Receiver] 錯誤: 缺少 API_ID 或 API_HASH 設定")
-            return
+            raise ValueError("缺少 API_ID 或 API_HASH 設定")
 
-        # 初始化客戶端 (會自動尋找本地的 .session 檔案)
+        # 初始化客戶端
         self.client = TelegramClient(session_name, api_id, api_hash)
         
-        # 註冊事件處理器
-        self._register_handlers()
-
-        print(f"[TG Receiver] 正在連接 Telegram (Session: {session_name})...")
-        try:
-            await self.client.start()
-            self.engine.stats['status'] = "Telegram 連線成功，監聽中..."
-            print("[TG Receiver] Telegram 連線成功，監聽中...")
-        except Exception as e:
-            self.engine.stats['status'] = f"連線失敗: {str(e)}"
-            print(f"[TG Receiver] 連線失敗: {e}")
-            return
+        # 執行互動式登入 (如果需要，會在此處提示輸入電話、驗證碼)
+        await self.client.start()
         
-        self._is_running = True
-        # 持續運行直到連線中斷
-        await self.client.run_until_disconnected()
-        self.engine.stats['status'] = "Telegram 連線已斷開"
-
-    def _register_handlers(self):
-        """註冊訊息攔截規則"""
-        
-        # 取得所有需要監控的 TG 頻道 ID
+        # 檢查頻道權限
+        print("[TG Receiver] 正在檢查頻道權限...")
         sources = self.config.get('sources', [])
         tg_sources = [s for s in sources if s.get('type') == 'telegram']
         
-        # 建立頻道對應表 {channel_id: source_name}
-        # 支援直接使用頻道 ID 或用戶名 (e.g., '@channel' 或 1234567)
-        channel_map = {s.get('channel_id'): s.get('name') for s in tg_sources}
-        watched_entities = list(channel_map.keys())
+        valid_entities = []
+        self.channel_map = {}
+        
+        for s in tg_sources:
+            cid = s.get('channel_id')
+            name = s.get('name')
+            try:
+                entity = await self.client.get_entity(cid)
+                valid_entities.append(entity)
+                self.channel_map[entity.id] = name
+                print(f"[TG Receiver] ✔ 成功解析頻道: {name} (ID: {entity.id})")
+            except Exception as e:
+                print(f"[TG Receiver] ❌ 無法解析頻道 '{name}' ({cid}): {e}")
+        
+        if not valid_entities:
+            raise ValueError("未找到任何有效的監控頻道，請檢查 config.yaml")
 
-        @self.client.on(events.NewMessage(chats=watched_entities))
+        self._register_handlers(valid_entities)
+        return True
+
+    def _register_handlers(self, valid_entities):
+        """註冊訊息攔截規則"""
+        @self.client.on(events.NewMessage(chats=valid_entities))
         async def handler(event):
-            # 找到對應的 source_name
-            # Telethon 的 event.chat_id 可能與輸入格式不同，需做匹配
-            chat = await event.get_chat()
+            source_name = self.channel_map.get(event.chat_id)
+            if not source_name: return
+
+            raw_text = event.message.message or ""
             
-            # 嘗試匹配 username 或 ID
-            source_name = None
-            for cid, name in channel_map.items():
-                if str(cid).replace('@', '') == getattr(chat, 'username', '') or str(cid) == str(event.chat_id):
-                    source_name = name
-                    break
-            
-            if source_name:
-                raw_text = event.message.message
-                print(f"[TG Receiver] 收到來自 {source_name} 的訊息")
-                # 推送給引擎處理
+            # --- 超精確過濾：必須同時包含『預言機』與『交易對』關鍵欄位 ---
+            if "預言機" in raw_text and "交易對" in raw_text:
+                # 只有符合格式的才推送給引擎
                 self.engine.process_incoming_message(source_name, raw_text)
+            else:
+                # 忽略其他 Topic 的訊息
+                pass
+
+    async def run_forever(self):
+        """第二階段：開始無限期監聽"""
+        if not self.client: return
+        self._is_running = True
+        self.engine.stats['status'] = "🟢 Telegram 監聽中..."
+        await self.client.run_until_disconnected()
+        self.engine.stats['status'] = "⚪ Telegram 已斷開"
 
     async def stop(self):
         """停止接收器"""

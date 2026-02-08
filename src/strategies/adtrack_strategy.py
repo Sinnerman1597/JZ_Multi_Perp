@@ -89,11 +89,16 @@ class AdTrack(StrategyBase):
             if main_order:
                 print(f"[AdTrack] 主單成功: {symbol} @ {exec_price or 'Market'}")
                 if order_type == 'market':
+                    # 紀錄進場時間
+                    from datetime import datetime
+                    now_str = datetime.now().strftime("%H:%M:%S")
+                    
                     tp_orders_info, sl_id = await self._set_multi_tp_sl(symbol, side, amount, sl_price, tp_prices)
                     self.watched_trades.append({
                         "symbol": symbol, "side": side, "entry_price": current_price,
                         "tp_orders": tp_orders_info, "sl_order_id": sl_id,
-                        "tp_history": tp_prices, "current_tp_stage": 0, "remaining_amount": amount
+                        "tp_history": tp_prices, "current_tp_stage": 0, "remaining_amount": amount,
+                        "timestamp": now_str
                     })
 
         except Exception as e:
@@ -102,6 +107,10 @@ class AdTrack(StrategyBase):
     async def _monitor_loop(self):
         while self._is_running:
             try:
+                # 同步持倉狀態至 UI 統計
+                if hasattr(self, 'engine'):
+                    self.engine.stats['active_trades'] = self.watched_trades
+
                 for trade in self.watched_trades[:]:
                     await self._check_trade_update(trade)
                 await asyncio.sleep(5)
