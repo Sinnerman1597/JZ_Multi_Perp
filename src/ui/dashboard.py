@@ -10,10 +10,9 @@ class Dashboard:
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
-            Layout(name="upper", size=8),  # 統計數據
-            Layout(name="middle", size=8), # 持倉狀態
-            Layout(name="lower", size=8),  # 訊息日誌
-            Layout(name="footer", size=3),
+            Layout(name="upper", size=9),  # 統計數據
+            Layout(name="middle", size=9), # 持倉狀態
+            Layout(name="lower", size=10), # 訊息日誌 (擴大以佔滿底部)
         )
         return layout
 
@@ -27,6 +26,7 @@ class Dashboard:
         table = Table(show_header=False, box=None)
         table.add_row("當前交易所:", f"[yellow]{exchange_id.upper()}[/yellow]")
         table.add_row("系統狀態:", f"[bold {'green' if '監聽中' in stats.get('status', '') else 'yellow'}]{stats.get('status', '初始化...')}[/bold {'green' if '監聽中' in stats.get('status', '') else 'yellow'}]")
+        table.add_row("監聽頻道:", f"[magenta]{stats.get('active_channels', 'None')}[/magenta]")
         table.add_row("已接收訊號:", str(stats['total_signals']))
         table.add_row("已執行下單:", str(stats['executed_trades']))
         table.add_row("最後訊號時間:", str(stats['last_signal_time']))
@@ -61,7 +61,3 @@ class Dashboard:
     def get_logs_panel(logs):
         content = "\n".join(logs) if logs else "[dim]尚無訊息紀錄...[/dim]"
         return Panel(content, title="[bold white]最近訊號日誌 (前5筆)[/bold white]", border_style="yellow")
-
-    @staticmethod
-    def get_footer_panel():
-        return Panel("指令: [bold yellow]stop[/bold yellow] (停止) | [bold yellow]test[/bold yellow] (模擬訊號) | 直接在此鍵入後按 Enter", style="dim")

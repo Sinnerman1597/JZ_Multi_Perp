@@ -27,7 +27,7 @@ class AdTrack(StrategyBase):
             self._is_running = True
             self._monitoring_task = asyncio.create_task(self._monitor_loop())
 
-    def on_signal(self, signal_data: Dict[str, Any]) -> None:
+    def on_signal(self, signal_data: Dict[str, Any], source: str) -> None:
         # --- 1. 優化日誌輸出 (視覺化訊號內容) ---
         self._log_signal_summary(signal_data)
         

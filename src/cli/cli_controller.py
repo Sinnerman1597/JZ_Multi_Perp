@@ -15,6 +15,7 @@ class CLIController:
     def __init__(self):
         self.engine = None
         self.config = ConfigLoader.load_config()
+        self.selected_signal_config = None
 
     async def run_menu(self):
         console.print("[bold blue]=== 交易系統啟動選單 ===[/bold blue]\n")
@@ -58,7 +59,7 @@ class CLIController:
             await self._setup_strategy_flow(exchange)
         
         if "2" in mode or "3" in mode:
-            self._setup_signals_flow()
+            await self._setup_signals_flow()
 
         # 5. 最後確認並啟動
         confirm_choice = await questionary.select(
@@ -83,7 +84,8 @@ class CLIController:
         layout = Dashboard.create_layout()
         
         # --- 1. 啟動連線預檢 (包含互動式登入) ---
-        receiver = TGSignalReceiver(self.engine, self.config.get('signals', {}))
+        sig_cfg = self.selected_signal_config if self.selected_signal_config else self.config.get('signals', {})
+        receiver = TGSignalReceiver(self.engine, sig_cfg)
         
         try:
             console.print("\n[bold yellow]📡 正在連接 Telegram... (若為第一次登入，請依提示輸入資訊)[/bold yellow]")
@@ -97,61 +99,26 @@ class CLIController:
         # 啟動非同步運行任務 (在背景跑 run_forever)
         receiver_task = asyncio.create_task(receiver.run_forever())
         
-        # 2. 啟動非同步指令監聽 (stop/test)
-        input_queue = asyncio.Queue()
-        async def _read_input():
-            while self.engine.is_running:
-                cmd = await asyncio.get_event_loop().run_in_executor(None, input)
-                await input_queue.put(cmd.strip().lower())
-
-        input_task = asyncio.create_task(_read_input())
-
+        # 2. 監控主迴圈
         try:
             with Live(layout, refresh_per_second=4, screen=False) as live:
                 while self.engine.is_running:
-                    # 處理待處理的指令
-                    while not input_queue.empty():
-                        cmd = await input_queue.get()
-                        if cmd == 'stop':
-                            self.engine.is_running = False
-                        elif cmd == 'test':
-                            self._trigger_mock_signal()
-                    
                     # 更新 UI
                     layout["header"].update(Dashboard.get_header_panel())
                     layout["upper"].update(Dashboard.get_stats_panel(self.engine.stats, exchange_id))
                     layout["middle"].update(Dashboard.get_trades_panel(self.engine.stats['active_trades']))
                     layout["lower"].update(Dashboard.get_logs_panel(self.engine.stats['message_logs']))
-                    layout["footer"].update(Dashboard.get_footer_panel())
                     
                     await asyncio.sleep(0.5)
 
-                    if not self.engine.is_running:
-                        break
+        except asyncio.CancelledError:
+            pass # 處理 Ctrl+C
         except Exception as e:
             console.print(f"[red]監控過程發生錯誤: {e}[/red]")
         finally:
             self.engine.is_running = False
             await receiver.stop()
-            receiver_task.cancel()
-            input_task.cancel()
-            console.print("[yellow]引擎已安全停止。[/yellow]")
-
-    def _trigger_mock_signal(self):
-        """模擬一則 AdTrack 測試訊號"""
-        mock_msg = (
-            "📈 交易對：TESTUSDT\n"
-            "📊 倉位：LONG\n"
-            "💪 槓桿倍數：10X\n"
-            "🔍 進場區域：1.0-2.0\n"
-            "⛔ 止損：0.5\n"
-            "🎯 目標1：3.0\n"
-            "🎯 目標2：4.0"
-        )
-        print("\n[Test Mode] 正在模擬推送測試訊號...")
-        # 尋找具備 adtrack_parser 的來源名稱並推送
-        source_name = next(iter(self.engine.parsers.keys()), "Test_Source")
-        self.engine.process_incoming_message(source_name, mock_msg)
+            console.print("[yellow]交易引擎已關閉。[/yellow]")
 
     async def _setup_strategy_flow(self, exchange):
         strategy_name = await questionary.select(
@@ -175,10 +142,36 @@ class CLIController:
 
         self.engine.add_strategy(strategy, final_params)
 
-    def _setup_signals_flow(self):
-        signal_cfg = self.config.get('signals')
+    async def _setup_signals_flow(self):
+        signal_cfg = self.config.get('signals', {})
         if not signal_cfg or not signal_cfg.get('enabled'):
             console.print("[red]⚠ 警告: YAML 中尚未啟用訊號源或配置為停用[/red]")
+            return
         
-        self.engine.setup_signal_sources(signal_cfg)
-        console.print("[green]✔ 已完成訊號解析器註冊[/green]")
+        sources = signal_cfg.get('sources', [])
+        if not sources:
+            console.print("[red]⚠ 警告: YAML 中沒有定義任何訊號源[/red]")
+            return
+
+        selected_sources = sources
+        if len(sources) > 1:
+            choices = [s['name'] for s in sources]
+            selected_names = await questionary.checkbox(
+                "請選擇要監聽的訊號源 (多選):",
+                choices=choices,
+                default=choices
+            ).ask_async()
+            
+            if not selected_names:
+                console.print("[yellow]⚠ 警告: 未選擇任何訊號源，將監控所有可用來源[/yellow]")
+                selected_sources = sources
+            else:
+                selected_sources = [s for s in sources if s['name'] in selected_names]
+
+        # 儲存選定的配置，供後續啟動 receiver 使用
+        self.selected_signal_config = signal_cfg.copy()
+        self.selected_signal_config['sources'] = selected_sources
+
+        # 在引擎中註冊解析器
+        self.engine.setup_signal_sources(self.selected_signal_config)
+        console.print(f"[green]✔ 已完成訊號解析器註冊 (已選擇 {len(selected_sources)} 個來源)[/green]")

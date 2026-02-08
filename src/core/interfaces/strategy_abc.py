@@ -18,7 +18,7 @@ class StrategyInterface(ABC):
         pass
 
     @abstractmethod
-    def on_signal(self, signal_data: Dict[str, Any]) -> None:
+    def on_signal(self, signal_data: Dict[str, Any], source: str) -> None:
         """當接收到外部訊號時觸發 (被動式/訊號驅動策略)"""
         pass
 

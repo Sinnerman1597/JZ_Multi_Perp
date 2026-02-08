@@ -19,6 +19,7 @@ class StrategyEngine:
             "executed_trades": 0,
             "last_signal_time": "None",
             "status": "等待連線...",
+            "active_channels": "None", # 儲存當前監聽的頻道名稱
             "message_logs": [],   # 存儲最近 5 則訊息內容
             "active_trades": []   # 存儲當前執行的策略持倉狀態
         }
@@ -32,9 +33,11 @@ class StrategyEngine:
     def setup_signal_sources(self, signal_config: Dict[str, Any]):
         """根據配置初始化多個訊號解析器"""
         if not signal_config.get('enabled', False):
+            self.stats["active_channels"] = "Disabled"
             return
 
         sources = signal_config.get('sources', [])
+        active_names = []
         for src in sources:
             name = src.get('name')
             parser_name = src.get('parser')
@@ -42,7 +45,10 @@ class StrategyEngine:
             
             if parser_instance:
                 self.parsers[name] = parser_instance
+                active_names.append(name)
                 print(f"[Engine] 已啟動訊號源監控: {name} (使用解析器: {parser_name})")
+        
+        self.stats["active_channels"] = ", ".join(active_names) if active_names else "None"
 
     def process_incoming_message(self, source_name: str, raw_message: Any):
         """
@@ -69,7 +75,7 @@ class StrategyEngine:
             print(f"[Engine] 從 {source_name} 獲取到有效交易訊號，正在分發...")
             self.stats["executed_trades"] += 1
             for strategy in self.active_strategies:
-                strategy.on_signal(trade_signal)
+                strategy.on_signal(trade_signal, source_name)
 
     def run_tick(self, market_data: Dict[str, Any]):
         """驅動主動型策略"""
