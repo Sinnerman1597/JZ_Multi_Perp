@@ -24,6 +24,7 @@ class Dashboard:
     def get_stats_panel(stats, exchange_id):
         table = Table(show_header=False, box=None)
         table.add_row("當前交易所:", f"[yellow]{exchange_id.upper()}[/yellow]")
+        table.add_row("系統狀態:", f"[bold {'green' if '成功' in stats.get('status', '') else 'yellow'}]{stats.get('status', '初始化...')}[/bold {'green' if '成功' in stats.get('status', '') else 'yellow'}]")
         table.add_row("已接收訊號:", str(stats['total_signals']))
         table.add_row("已執行下單:", str(stats['executed_trades']))
         table.add_row("最後訊號時間:", str(stats['last_signal_time']))

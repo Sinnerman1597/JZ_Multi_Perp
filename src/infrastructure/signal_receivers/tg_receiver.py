@@ -33,12 +33,19 @@ class TGSignalReceiver:
         self._register_handlers()
 
         print(f"[TG Receiver] 正在連接 Telegram (Session: {session_name})...")
-        await self.client.start()
-        print("[TG Receiver] Telegram 連線成功，監聽中...")
+        try:
+            await self.client.start()
+            self.engine.stats['status'] = "Telegram 連線成功，監聽中..."
+            print("[TG Receiver] Telegram 連線成功，監聽中...")
+        except Exception as e:
+            self.engine.stats['status'] = f"連線失敗: {str(e)}"
+            print(f"[TG Receiver] 連線失敗: {e}")
+            return
         
         self._is_running = True
         # 持續運行直到連線中斷
         await self.client.run_until_disconnected()
+        self.engine.stats['status'] = "Telegram 連線已斷開"
 
     def _register_handlers(self):
         """註冊訊息攔截規則"""

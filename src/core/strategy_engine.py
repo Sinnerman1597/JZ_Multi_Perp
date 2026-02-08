@@ -17,7 +17,8 @@ class StrategyEngine:
         self.stats = {
             "total_signals": 0,
             "executed_trades": 0,
-            "last_signal_time": "None"
+            "last_signal_time": "None",
+            "status": "等待連線..."
         }
 
     def add_strategy(self, strategy: StrategyInterface, params: Dict[str, Any]):

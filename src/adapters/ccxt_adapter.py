@@ -36,6 +36,11 @@ class CCXTAdapter(ExchangeInterface):
             'enableRateLimit': exchange_config.get('enableRateLimit', True),
             'options': exchange_config.get('options', {})
         })
+
+        # 如果設定中開啟了 sandbox 模式，則切換到模擬網 (Testnet)
+        if exchange_config.get('sandbox', False):
+            self._exchange.set_sandbox_mode(True)
+            print(f"[Exchange] {exchange_id} 已啟動模擬網 (Sandbox) 模式")
         self._exchange_name = exchange_id
         
         # 測試連線 (選配：加載市場資訊以驗證 API)

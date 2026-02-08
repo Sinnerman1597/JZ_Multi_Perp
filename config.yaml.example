@@ -1,33 +1,30 @@
-# ==========================================
-# Multi_Base 交易系統設定範本 (Example)
-# 使用方式: 複製此檔案並重新命名為 config.yaml
-# ==========================================
+# ------------------------------------------
+# Multi_Base 交易系統設定檔
+# ------------------------------------------
 
-# ------------------------------------------
-# 1. 交易所配置 (必填)
-# ------------------------------------------
+# 1. 交易所配置 (支援多交易所管理)
 exchange:
-  # 當前啟動的交易所名稱 (對應下方定義的 Key，支援不分大小寫)
-  active: "binance"
-  
-  # 幣安交易所設定
-  binance:
-    type: "ccxt"                  # 交易所類型: "ccxt", "custom", "dex"
-    apiKey: "YOUR_API_KEY"        # 填入您的 API Key
-    secret: "YOUR_API_SECRET"     # 填入您的 API Secret
-    options: 
-      defaultType: "future"       # "future": 合約, "spot": 現貨
+  active: "bybit"                 # 當前啟用的交易所名稱 (對應下方細節配置)
 
   # Bybit 交易所設定
   bybit:
     type: "ccxt"
-    apiKey: "YOUR_API_KEY"
-    secret: "YOUR_API_SECRET"
+    apiKey: "你的API_KEY"
+    secret: "你的SECRET"
+    apiKey: "你的_TESTNET_API_KEY" #若非測試網請註解此兩行
+    secret: "你的_TESTNET_SECRET"
+    sandbox: true                 # 重要：設為 true 則連往 Bybit Testnet (模擬網)
+    enableRateLimit: true
     options: 
       defaultType: "swap"         # "swap": 永續合約
 
 # ------------------------------------------
 # 2. 策略配置 (選配 - 自主指標交易模式 或 訊號策略參數)
+# ------------------------------------------
+# 目前可用的策略 (Strategy) 名稱：
+# - "AdTrack"             : 您目前的主力策略 (支援 4 階止盈與移動止損)
+# - "demo_ma_crossover"   : 範例均線交叉策略
+# - "demo_signal_strategy": 範例基礎訊號策略
 # ------------------------------------------
 strategy:
   enabled: true                   # 是否啟用主動策略模式，true 為啟用，false 為停用
@@ -47,33 +44,31 @@ strategy:
 # ------------------------------------------
 # 3. 外部訊號跟單模式 (選配 - Telegram/TradingView)
 # ------------------------------------------
+# 目前可用的解析器 (Parser) 型號：
+# - "adtrack_parser" : 專為 AdTrack 格式設計 (包含 Emoji、進場區間、4級階梯止盈)
+# - "demo_tg_parser" : 基礎測試用格式
+# ------------------------------------------
 signals:
-  enabled: false                  # 是否啟用外部訊號監控，true 為啟用，false 為停用
+  enabled: true                   # 是否啟用外部訊號監控
   
   # Telegram 用戶端基礎設定 (當 sources 中有類型為 telegram 時必填)
-  # 請至 https://my.telegram.org 申請 API_ID 與 API_HASH
   telegram_config:
-    api_id: "YOUR_API_ID"         # 填入官方產生的 API ID
-    api_hash: "YOUR_API_HASH"     # 填入官方產生的 API HASH
-    session_name: "trade_bot"     # 您自定義的會話名稱，程式執行後會產生同名的 .session 檔案
+    api_id: 123456                # 替換為您的 Telegram API_ID
+    api_hash: "your_api_hash"      # 替換為您的 Telegram API_HASH
+    session_name: "trade_bot"     # .session 檔案名稱 (若已有現成 session 可移植)
 
+  # 訊號來源設定
   sources:
-    - name: "TG_Example_Group"    # 範例 Telegram 頻道
-      type: "telegram"
-      channel_id: "@your_channel" # 頻道 ID
-      parser: "demo_tg_parser"    # 使用的解析器名稱
-      
-    - name: "TV_Example_Webhook"  # 範例 TradingView Webhook
-      type: "webhook"
-      port: 8080
-      path: "/tv_signals"
-      parser: "json_parser"
+    - name: "AdTrack_Group"       # 來源標籤 (自定義，用於日誌顯示)
+      type: "telegram"            # 來源類型: telegram, webhook
+      channel_id: "@channel"      # 頻道 Username 或 ID
+      parser: "adtrack_parser"    # 使用哪個解析器
 
 # ------------------------------------------
-# 4. 通知與日誌 (選配 - 訊息推送)
+# 4. 通知配置
 # ------------------------------------------
 notifications:
-  telegram_bot:
-    enabled: false                # 是否啟用交易結果推送，true 為啟用，false 為停用
-    token: "YOUR_BOT_TOKEN"       # 機器人 Token
-    chat_id: "YOUR_CHAT_ID"       # 您的 Chat ID
+  telegram:
+    enabled: false
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
