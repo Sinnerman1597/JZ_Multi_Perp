@@ -40,9 +40,16 @@ class ItalyStrategy(StrategyBase):
         table.add_row("方向", f"[bold {'green' if signal_data['side']=='buy' else 'red'}]{signal_data['side'].upper()}[/bold {'green' if signal_data['side']=='buy' else 'red'}]")
         table.add_row("來源", f"[dim]{source}[/dim]")
         
-        console.print(Panel(table, title="[bold magenta]🇮🇹 Italy 訊號觸發 - 市價執行[/bold magenta]", border_style="magenta", expand=False))
-        
-        asyncio.create_task(self._process_execution(signal_data))
+        if signal_data.get('action') == 'exit_all':
+            side_name = "多單 (Long)" if signal_data['target_side'] == 'buy' else "空單 (Short)"
+            console.print(Panel(f"收到[bold red]全平[/bold red]指令：[bold yellow]{side_name}[/bold yellow]", title="[bold red]🇮🇹 Italy 批量獲利出場[/bold red]", expand=False))
+            asyncio.create_task(self._process_exit_all(signal_data['target_side']))
+        elif signal_data.get('action') == 'exit':
+            console.print(Panel(f"檢查到平倉指令: [bold yellow]{signal_data['symbol']}[/bold yellow]", title="[bold red]🇮🇹 Italy 獲利出場[/bold red]", expand=False))
+            asyncio.create_task(self._process_exit(signal_data))
+        else:
+            console.print(Panel(table, title="[bold magenta]🇮🇹 Italy 訊號觸發 - 市價執行[/bold magenta]", border_style="magenta", expand=False))
+            asyncio.create_task(self._process_execution(signal_data))
 
     async def _process_execution(self, signal):
         symbol = signal['symbol']
@@ -101,6 +108,7 @@ class ItalyStrategy(StrategyBase):
                     "tp_history": target_tps, "current_tp_stage": 0,
                     "remaining_amount": amount, "timestamp": now_str
                 })
+                console.print(f"[bold green]✔ {symbol} 進場成功！方向: {side.upper()} | 已設置 {len(tp_info)} 階止盈與止損單[/bold green]")
 
         except Exception as e:
             err_msg = str(e)
@@ -110,19 +118,91 @@ class ItalyStrategy(StrategyBase):
             else:
                 print(f"[Italy Strategy Error] {e}")
 
+    async def _process_exit(self, signal):
+        """處理單筆回覆獲利平倉指令"""
+        symbol = signal['symbol']
+        target_trade = next((t for t in self.watched_trades if t['symbol'] == symbol), None)
+        
+        if not target_trade:
+            console.print(f"[Italy Strategy] 忽略平倉指令：目前無正在追蹤的 [bold]{symbol}[/bold] 持倉。")
+            return
+
+        current_stage = target_trade.get('current_tp_stage', 0)
+        if current_stage >= 2:
+            console.print(f"[Italy Strategy] [cyan]提示：{symbol} 已達成 TP2 以上，理論上已無剩餘倉位。忽略此次平倉指令。[/cyan]")
+            if target_trade in self.watched_trades:
+                self.watched_trades.remove(target_trade)
+            return
+        
+        console.print(f"[Italy Strategy] 正在執行 {symbol} 獲利出場...")
+        await self._execute_safe_close(target_trade)
+
+    async def _process_exit_all(self, target_side: str):
+        """批量全平特定方向的所有倉位"""
+        # 找出所有方向匹配的交易 (注意: target_side 是當前持倉方向)
+        matches = [t for t in self.watched_trades if t['side'] == target_side]
+        
+        if not matches:
+            side_log = "多單 (Long)" if target_side == 'buy' else "空單 (Short)"
+            console.print(f"[Italy Strategy] 批量全平忽略：目前無正在追蹤的 [bold]{side_log}[/bold] 持倉。")
+            return
+
+        for trade in matches:
+            await self._execute_safe_close(trade)
+
+    async def _execute_safe_close(self, trade):
+        """執行安全平倉：撤銷所有掛單後執行市價全平"""
+        symbol = trade['symbol']
+        try:
+            # 1. 撤銷掛單 (TP列隊與SL)
+            if trade.get('sl_order_id'):
+                try: self.exchange.cancel_order(trade['sl_order_id'], symbol)
+                except: pass
+            for tp in trade.get('tp_orders', []):
+                try: self.exchange.cancel_order(tp['id'], symbol)
+                except: pass
+            
+            # 2. 市價全平
+            close_side = 'sell' if trade['side'] == 'buy' else 'buy'
+            remaining = trade['remaining_amount']
+            
+            exit_order = self.execute_trade(
+                symbol=symbol, side=close_side, amount=remaining,
+                order_type='market', params={'reduceOnly': True, 'positionIdx': 0}
+            )
+            
+            if exit_order:
+                console.print(f"[bold green]✔ {symbol} 已手動獲利了結全平成功！[/bold green]")
+                if trade in self.watched_trades:
+                    self.watched_trades.remove(trade)
+                    
+        except Exception as e:
+            console.print(f"[Italy Strategy Close Error] {symbol}: {e}")
+
     async def _set_tp_sl(self, symbol, side, total_amount, sl_price, tps):
         close_side = 'sell' if side == 'buy' else 'buy'
         tp_infos = []
         
         if not tps: return [], None
 
-        # 比例分配：如果有 2 個 TP，各 50%
-        qty_per_tp = total_amount / len(tps)
-        
+        # 從參數讀取分配比例 (例如 "0.5, 0.5")
+        alloc_str = self.params.get("tp_allocation", "0.5, 0.5")
+        try:
+            allocations = [float(x.strip()) for x in alloc_str.split(",")]
+        except:
+            allocations = [1.0 / len(tps)] * len(tps) # 降級為平均分配
+
         for i, price in enumerate(tps):
+            if i >= len(allocations): break
+            
+            # 根據比例計算該階數量的數量
+            qty = total_amount * allocations[i]
+            # 確保符合交易所精度
+            qty = float(self.exchange._exchange.amount_to_precision(symbol, qty))
+
             try:
                 order = self.execute_trade(
-                    symbol=symbol, side=close_side, amount=qty_per_tp,
+                    symbol=symbol, side=close_side, amount=qty,
                     order_type='limit', price=price, params={'reduceOnly': True, 'positionIdx': 0}
                 )
                 if order:
@@ -156,11 +236,23 @@ class ItalyStrategy(StrategyBase):
             try:
                 info = self.exchange.get_order(tp['id'], symbol)
                 if info.get('status') == 'closed':
-                    trade['current_tp_stage'] = tp['stage']
-                    trade['remaining_amount'] -= (trade['remaining_amount'] / (len(trade['tp_orders']))) # 簡易估計
-                    # 移動止損 (Italy 邏輯：TP1 達成後 SL 移至開倉價)
-                    if tp['stage'] == 1:
+                    stage = tp['stage']
+                    trade['current_tp_stage'] = stage
+                    
+                    # 比例扣除剩餘量 (這僅用於 UI 顯示參考)
+                    trade['remaining_amount'] -= info.get('amount', 0)
+                    
+                    # 移動止損保護
+                    if stage == 1:
+                        # TP1 達成 -> 移至開倉價 (保本)
+                        console.print(f"[Italy Strategy] {symbol} TP1 達成，止損移至保本價: {trade['entry_price']}")
                         await self._move_sl(trade, trade['entry_price'])
+                    elif stage == 2:
+                        # TP2 達成 -> 移至 TP1 價格
+                        tp1_price = trade['tp_history'][0]
+                        console.print(f"[Italy Strategy] {symbol} TP2 達成，止損移至 TP1 價格: {tp1_price}")
+                        await self._move_sl(trade, tp1_price)
+                    
                     trade['tp_orders'].remove(tp)
             except Exception: pass
         
@@ -197,6 +289,11 @@ class ItalyStrategy(StrategyBase):
                 "description": "下單金額", 
                 "default": 10.0,
                 "dynamic_defaults": {"UNITS": "0.001", "USDT": "10.0"}
+            },
+            "tp_allocation": {
+                "type": "str",
+                "description": "止盈分配比例 (逗號分隔)",
+                "default": "0.5, 0.5"
             }
         }
 

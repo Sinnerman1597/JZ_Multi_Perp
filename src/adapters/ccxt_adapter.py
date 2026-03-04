@@ -56,6 +56,17 @@ class CCXTAdapter(ExchangeInterface):
         """獲取行情價格"""
         return self._exchange.fetch_ticker(symbol)
 
+    def set_leverage(self, leverage: int, symbol: str) -> Dict[str, Any]:
+        """設定槓桿 (處理型別與格式)"""
+        if not self._exchange:
+            raise RuntimeError("交易所尚未初始化")
+        
+        # 強制轉為整數，確保不會因為傳入字串而導致計算錯誤
+        lv = int(leverage)
+        
+        # Bybit V5 API 建議直接透過 params 傳入確切數值，避免 CCXT 內部轉換錯誤
+        return self._exchange.set_leverage(lv, symbol)
+
     def create_order(self, symbol: str, order_type: str, side: str, amount: float, price: float = None, params: Dict[str, Any] = {}) -> Dict[str, Any]:
         """建立訂單"""
         # CCXT 的 create_order 本身就是統一接口

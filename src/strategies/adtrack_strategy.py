@@ -67,10 +67,24 @@ class AdTrack(StrategyBase):
             except: pass
             
             try:
-                self.exchange._exchange.set_leverage(leverage, symbol)
+                # 改用適配器封裝的標準化方法，避免直接操作底層觸發 100 倍 Bug
+                self.exchange.set_leverage(leverage, symbol)
             except Exception as lev_e:
-                err_msg = str(lev_e).lower()
-                if "110043" in err_msg or "leverage not modified" in err_msg:
+                err_msg = str(lev_e)
+                # Bybit 特有的風險限額報錯處理
+                if "gt maxLeverage" in err_msg:
+                    import re
+                    match = re.search(r"maxLeverage \[(\d+)\]", err_msg)
+                    if match:
+                        # 強制轉換抓到的數字字串為 int，徹底排除 'str' / 'float' 錯誤
+                        max_lev_val = int(match.group(1))
+                        suggested_lev = int(max_lev_val / 100)
+                        print(f"[AdTrack] ⚠️ 警告：該幣種風險限額不允許 {leverage}X，自動調降為最大限制 {suggested_lev}X...")
+                        try:
+                            self.exchange.set_leverage(suggested_lev, symbol)
+                        except:
+                            print(f"[AdTrack] ❌ 槓桿自動修正失敗")
+                elif "110043" in err_msg.lower() or "leverage not modified" in err_msg.lower():
                     print(f"[AdTrack] 提示：{symbol} 槓桿數已為 {leverage} 倍，不進行調整。")
                 else:
                     print(f"[AdTrack Leverage Warning] {lev_e}")
@@ -83,9 +97,9 @@ class AdTrack(StrategyBase):
             mode = self.params.get("investment_mode", "USDT")
             val = self.params.get("investment_value", 100.0)
             
-            amount = self.calculate_order_amount(symbol, current_price, val, mode=mode)
+            amount = self.calculate_order_amount(symbol, current_price, val, mode=mode, leverage=leverage)
             
-            print(f"[AdTrack] 下單模式: {mode} | 數值: {val} -> 計算量: {amount}")
+            print(f"[AdTrack] 下單模式: {mode} | 保證金: {val} USDT | 槓桿: {leverage}X | 計算數量: {amount}")
 
             # 3. 判定進場方式
             is_in_range = entry_min <= current_price <= entry_max
@@ -100,7 +114,6 @@ class AdTrack(StrategyBase):
             )
 
             if main_order:
-                print(f"[AdTrack] 主單成功: {symbol} @ {exec_price or 'Market'}")
                 if order_type == 'market':
                     # 紀錄進場時間
                     from datetime import datetime
@@ -113,6 +126,9 @@ class AdTrack(StrategyBase):
                         "tp_history": tp_prices, "current_tp_stage": 0, "remaining_amount": amount,
                         "timestamp": now_str
                     })
+                    console.print(f"[bold green]✔ {symbol} 進場成功！方向: {side.upper()} | 已設置 {len(tp_orders_info)} 階止盈與止損單[/bold green]")
+                else:
+                    console.print(f"[bold green]✔ {symbol} 掛單成功！方向: {side.upper()} | 價格: {exec_price}[/bold green]")
 
         except Exception as e:
             err_msg = str(e)
@@ -177,37 +193,72 @@ class AdTrack(StrategyBase):
                 try: self.exchange.cancel_order(trade['sl_order_id'], symbol)
                 except: pass
 
+            # 移動止損同樣需要 triggerDirection
+            trigger_direction = "descending" if side == 'buy' else "ascending"
             new_sl_order = self.execute_trade(
                 symbol=symbol, order_type='market', side=close_side,
                 amount=trade['remaining_amount'], 
-                params={'stopPrice': new_sl_price, 'reduceOnly': True, 'positionIdx': 0}
+                params={
+                    'stopPrice': new_sl_price,
+                    'triggerDirection': trigger_direction,
+                    'reduceOnly': True,
+                    'positionIdx': 0
+                }
             )
             trade['sl_order_id'] = new_sl_order['id'] if new_sl_order else None
+            if trade['sl_order_id']:
+                print(f"[AdTrack] ✔ 移動止損成功 → {trigger_direction} @ {new_sl_price}")
         except Exception as e:
-            print(f"[AdTrack SL Error] {e}")
+            print(f"[AdTrack SL Error] 移動止損失敗: {e}")
 
     async def _set_multi_tp_sl(self, symbol, side, total_amount, initial_sl, tp_list):
         close_side = 'sell' if side == 'buy' else 'buy'
-        partial_amount = self.calculate_order_amount(symbol, 1.0, total_amount / 4, mode='UNITS')
         
+        # 從參數讀取分配比例 (預設為 4 階各 25%)
+        alloc_str = self.params.get("tp_allocation", "0.25, 0.25, 0.25, 0.25")
+        try:
+            allocations = [float(x.strip()) for x in alloc_str.split(",")]
+        except:
+            allocations = [1.0 / len(tp_list)] * len(tp_list)
+
         tp_infos = []
-        for i, tp_p in enumerate(tp_list[:4]):
+        for i, tp_p in enumerate(tp_list):
+            if i >= len(allocations): break
+
+            # 根據比例計算數量並處理精度
+            qty = total_amount * allocations[i]
+            qty = float(self.exchange._exchange.amount_to_precision(symbol, qty))
+
             try:
                 order = self.execute_trade(
                     symbol=symbol, order_type='limit', side=close_side,
-                    amount=partial_amount, price=tp_p, params={'reduceOnly': True, 'positionIdx': 0}
+                    amount=qty, price=tp_p, params={'reduceOnly': True, 'positionIdx': 0}
                 )
                 if order: tp_infos.append({"id": order['id'], "price": tp_p, "stage": i+1})
             except: pass
 
         sl_id = None
         try:
+            # Bybit V5 止損觸發方向：
+            # LONG (做多) → 止損在進場價下方 → 等價格「下跌」觸發 → "descending"
+            # SHORT (做空) → 止損在進場價上方 → 等價格「上漲」觸發 → "ascending"
+            trigger_direction = "descending" if side == 'buy' else "ascending"
             sl_order = self.execute_trade(
                 symbol=symbol, order_type='market', side=close_side,
-                amount=total_amount, params={'stopPrice': initial_sl, 'reduceOnly': True, 'positionIdx': 0}
+                amount=total_amount, params={
+                    'stopPrice': initial_sl,
+                    'triggerDirection': trigger_direction,
+                    'reduceOnly': True,
+                    'positionIdx': 0
+                }
             )
             sl_id = sl_order['id'] if sl_order else None
-        except: pass
+            if sl_id:
+                print(f"[AdTrack] ✔ 止損單設置成功: {trigger_direction} @ {initial_sl}")
+            else:
+                print(f"[AdTrack] ⚠️ 止損單回傳為空，請手動確認是否設置成功")
+        except Exception as sl_e:
+            print(f"[AdTrack SL Error] 止損設置失敗: {sl_e}")
         
         return tp_infos, sl_id
 
@@ -227,6 +278,11 @@ class AdTrack(StrategyBase):
                 "description": "下單數值 (USDT金額 或 幣種顆數)", 
                 "default": 20.0,
                 "dynamic_defaults": {"UNITS": "0.001", "USDT": "20.0"}
+            },
+            "tp_allocation": {
+                "type": "str",
+                "description": "止盈分配比例 (逗號分隔)",
+                "default": "0.25, 0.25, 0.25, 0.25"
             }
         }
 

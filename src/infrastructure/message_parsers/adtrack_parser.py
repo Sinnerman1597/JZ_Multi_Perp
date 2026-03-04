@@ -18,7 +18,7 @@ class AdTrackParser(ParserInterface):
         
         # 使用過濾後的文字進行匹配
         # 1. 提取幣對 (例如: DAMUSDT)
-        symbol_match = re.search(r"交易對：\s*([A-Z0-9]+)", clean_text)
+        symbol_match = re.search(r"交易對[:：]\s*([A-Z0-9]+)", clean_text)
         if not symbol_match:
             return None # 非 AdTrack 格式訊息
         
@@ -28,17 +28,17 @@ class AdTrackParser(ParserInterface):
         symbol = f"{symbol_raw[:-4]}/{symbol_raw[-4:]}:USDT" if symbol_raw.endswith("USDT") else symbol_raw
 
         # 2. 提取方向 (LONG/SHORT)
-        side_match = re.search(r"倉位：\s*(SHORT|LONG)", clean_text, re.IGNORECASE)
+        side_match = re.search(r"倉位[:：]\s*(SHORT|LONG)", clean_text, re.IGNORECASE)
         side = side_match.group(1).lower() if side_match else None
         # 轉為 CCXT 標準 side: 'buy' 或 'sell'
         execution_side = 'sell' if side == 'short' else 'buy'
 
         # 3. 提取槓桿 (例如: 6X)
-        leverage_match = re.search(r"槓桿倍數：\s*(\d+)", clean_text)
+        leverage_match = re.search(r"槓桿倍數[:：]\s*(\d+)", clean_text)
         leverage = int(leverage_match.group(1)) if leverage_match else 1
 
         # 4. 提取進場區間 (例如: 0.02003-0.02023)
-        entry_match = re.search(r"進場區域：\s*([\d\.]+)-([\d\.]+)", clean_text)
+        entry_match = re.search(r"進場區域[:：]\s*([\d\.]+)-([\d\.]+)", clean_text)
         entry_min = None
         entry_max = None
         if entry_match:
@@ -49,12 +49,12 @@ class AdTrackParser(ParserInterface):
             entry_max = max(p1, p2)
 
         # 5. 提取止損 (SL)
-        sl_match = re.search(r"止損：\s*([\d\.]+)", clean_text)
+        sl_match = re.search(r"止損[:：]\s*([\d\.]+)", clean_text)
         stop_loss = float(sl_match.group(1)) if sl_match else None
 
         # 6. 提取多個止盈目標 (TP)
         # 查找所有數字標註的目標值
-        tp_matches = re.findall(r"目標\d+：\s*([\d\.]+)", clean_text)
+        tp_matches = re.findall(r"目標\d+[:：]\s*([\d\.]+)", clean_text)
         take_profits = [float(tp) for tp in tp_matches]
 
         return {

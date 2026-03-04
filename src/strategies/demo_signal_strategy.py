@@ -17,15 +17,19 @@ class DemoSignalStrategy(StrategyBase):
         side = signal_data.get("side")
         price = signal_data.get("entry_price")
         
-        print(f"[Strategy: {self.strategy_name}] 接收到解析訊號，準備執行...")
+        from rich.console import Console
+        console = Console()
+        console.print(f"[Strategy: {self.strategy_name}] 接收到解析訊號，準備執行...")
         
         # 調用 StrategyBase 封裝的下單方法
-        self.execute_trade(
+        order = self.execute_trade(
             symbol=symbol,
             side=side,
             amount=0.01, # 這裡未來應由風控模組計算
             price=price
         )
+        if order:
+            console.print(f"[bold green]✔ {symbol} 進場成功！方向: {side.upper()}[/bold green]")
 
     @property
     def requirements(self) -> Dict[str, Any]:
