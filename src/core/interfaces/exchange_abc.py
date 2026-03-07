@@ -42,6 +42,11 @@ class ExchangeInterface(ABC):
         """獲取特定訂單的詳細狀態"""
         pass
 
+    @abstractmethod
+    def amount_to_precision(self, symbol: str, amount: float) -> str:
+        """根據交易所精度格式化交易數量"""
+        pass
+
     @property
     @abstractmethod
     def exchange_id(self) -> str:

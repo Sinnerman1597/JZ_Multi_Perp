@@ -23,6 +23,7 @@ from src.infrastructure.config_loader import ConfigLoader
 from src.core.exchange_manager import ExchangeManager
 from src.core.strategy_factory import StrategyFactory
 from src.core.strategy_engine import StrategyEngine
+from src.core.exchange_router import ExchangeRouter
 
 class CLIController:
     """控制中心：處理互動選單與啟動流程"""
@@ -54,11 +55,15 @@ class CLIController:
             style=custom_style
         ).ask_async()
 
-        # 2. 初始化引擎
+        # 2. 初始化引擎 (包含多交易所路由器)
         exchange_cfg = self.config.get('exchange')
         exchange_cfg['active'] = exchange_id 
         exchange = ExchangeManager.create_exchange(exchange_cfg)
-        self.engine = StrategyEngine(exchange)
+        
+        # 初始化路由器 (AdTrack 專用)
+        router = ExchangeRouter(exchange_cfg)
+        
+        self.engine = StrategyEngine(exchange, router=router)
 
         # 3. 選擇執行模式
         mode = await questionary.select(
@@ -104,6 +109,10 @@ class CLIController:
             console.print("\n[bold yellow]📡 正在連接 Telegram... (若為第一次登入，請依提示輸入資訊)[/bold yellow]")
             await receiver.connect_and_auth()
             console.print("[bold green]✔ 連線與授權成功！正在開啟監控面板...[/bold green]")
+            
+            # 正式啟動所有策略的背景任務 (方案 B 等動作推遲到這裡)
+            await self.engine.start_all_strategies()
+            
             await asyncio.sleep(1) # 給使用者看一眼成功訊息
         except Exception as e:
             console.print(f"[bold red]❌ Telegram 初始化失敗: {e}[/bold red]")

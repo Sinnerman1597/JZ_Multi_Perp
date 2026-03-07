@@ -10,26 +10,30 @@ class StrategyEngine:
     負責協調交易所、策略與多個訊號來源。
     """
 
-    def __init__(self, exchange: ExchangeInterface):
+    def __init__(self, exchange: ExchangeInterface, router=None):
         self.exchange = exchange
+        self.router = router  # ExchangeRouter (僅 AdTrack 策略使用)
         self.active_strategies: List[StrategyInterface] = []
-        self.parsers: Dict[str, Any] = {} 
+        self.parsers: Dict[str, Any] = {}
         self.is_running = False
         self.stats = {
             "total_signals": 0,
             "executed_trades": 0,
             "last_signal_time": "None",
             "status": "等待連線...",
-            "active_channels": "None", # 儲存當前監聽的頻道名稱
-            "investment_mode": "N/A",  # 下單模式 (USDT/UNITS)
-            "investment_value": "N/A", # 下單數值
-            "message_logs": [],   # 存儲最近 5 則訊息內容
-            "active_trades": []   # 存儲當前執行的策略持倉狀態
+            "active_channels": "None",
+            "investment_mode": "N/A",
+            "investment_value": "N/A",
+            "message_logs": [],
+            "active_trades": []
         }
 
     def add_strategy(self, strategy: StrategyInterface, params: Dict[str, Any]):
-        """註冊並初始化策略"""
-        strategy.engine = self  # 注入引擎實例以便策略更新數據
+        """註冊並初始化策略；若策略支援 router 則注入 ExchangeRouter"""
+        strategy.engine = self
+        # 僅對支援 router 屬性的策略 (AdTrack) 注入 ExchangeRouter
+        if hasattr(strategy, 'router') and self.router is not None:
+            strategy.router = self.router
         strategy.on_init(params)
         self.active_strategies.append(strategy)
         
@@ -38,6 +42,16 @@ class StrategyEngine:
             self.stats["investment_mode"] = params['investment_mode']
         if 'investment_value' in params:
             self.stats["investment_value"] = params['investment_value']
+
+    async def start_all_strategies(self):
+        """正式啟動所有已註冊策略的背景任務"""
+        self.is_running = True
+        tasks = []
+        for strat in self.active_strategies:
+            if hasattr(strat, 'start'):
+                tasks.append(strat.start())
+        if tasks:
+            await asyncio.gather(*tasks)
 
     async def stop(self):
         """集中停止所有運行的策略與引擎狀態"""

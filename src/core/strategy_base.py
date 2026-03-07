@@ -41,7 +41,7 @@ class StrategyBase(StrategyInterface, ABC):
             print(f"[Trade Error] {symbol} {side} 下單失敗: {e}")
             return None
 
-    def calculate_order_amount(self, symbol: str, ticker_price: float, val: float, mode: str = 'USDT', leverage: int = 1) -> float:
+    def calculate_order_amount(self, symbol: str, ticker_price: float, val: float, mode: str = 'USDT', leverage: int = 1, ex=None) -> float:
         """
         智慧數量計算器。
         :param val: 數值
@@ -49,7 +49,9 @@ class StrategyBase(StrategyInterface, ABC):
             - UNITS 模式：代表直接下單的數量（顆數）
         :param mode: 'USDT' 或 'UNITS'
         :param leverage: 槓桿倍數，僅 USDT 模式使用
+        :param ex: 目標交易所實例，若不提供則使用 default (self.exchange)
         """
+        target_ex = ex if ex else self.exchange
         if mode == 'USDT':
             # 保證金 × 槓桿 / 市價 = 數量 (強制型別轉換避免 str/float 錯誤)
             raw_amount = float(val) * int(leverage) / float(ticker_price)
@@ -57,7 +59,7 @@ class StrategyBase(StrategyInterface, ABC):
             raw_amount = float(val)
 
         # 使用交易所精度處理
-        return float(self.exchange._exchange.amount_to_precision(symbol, raw_amount))
+        return float(target_ex.amount_to_precision(symbol, raw_amount))
 
     @property
     def strategy_name(self) -> str:

@@ -70,12 +70,28 @@ class TerminalController(CLIController):
                         for trade in active_trades:
                             symbol = trade.get('symbol', 'N/A')
                             side = trade.get('side', 'N/A')
-                            entry = trade.get('entry_price', 'N/A')
+                            entry = float(trade.get('entry_price', 0))
                             amount = trade.get('remaining_amount', 'N/A')
                             stage = trade.get('current_tp_stage', 0)
+                            ex = trade.get('exchange')
+                            exchange_name = ex.exchange_id if ex else 'N/A'
                             
+                            # 獲取現價與計算盈虧
+                            current_price = "N/A"
+                            pnl_str = ""
+                            if ex:
+                                try:
+                                    ticker = ex.get_ticker(symbol)
+                                    cur = float(ticker['last'])
+                                    current_price = f"{cur}"
+                                    if entry > 0:
+                                        pnl = ((cur - entry) / entry * 100) if side == 'buy' else ((entry - cur) / entry * 100)
+                                        pnl_color = "green" if pnl >= 0 else "red"
+                                        pnl_str = f" | [bold {pnl_color}]PnL: {pnl:+.2f}%[/bold {pnl_color}]"
+                                except: pass
+
                             side_colored = f"[bold green]{side.upper()}[/bold green]" if side == 'buy' else f"[bold red]{side.upper()}[/bold red]"
-                            console.print(f" ► [bold]{symbol}[/bold] | 方向: {side_colored} | 進場價: {entry} | 剩餘數量: {amount} | 已達 TP 階段: {stage}")
+                            console.print(f" ► [[bold yellow]{exchange_name.upper()}[/bold yellow]] [bold]{symbol}[/bold] | {side_colored} | 階: {stage} | 入場: {entry} | [bold white]現價: {current_price}[/bold white]{pnl_str} | 量: {amount}")
                         console.print("[bold cyan]==============================================[/bold cyan]\n")
                     
         except asyncio.CancelledError:
